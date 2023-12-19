@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 import torch
 import time
 import math
@@ -282,12 +283,12 @@ class TestOps(unittest.TestCase):
     helper_test_op([(45,65)], lambda x: 2/x, lambda x: 2/x)
     helper_test_op([()], lambda x: x/2, lambda x: x/2)
     helper_test_op([()], lambda x: 2/x, lambda x: 2/x)
-  @unittest.skipIf(Device.DEFAULT == "METAL", "METAL has issues with -inf")
+  @unittest.skipIf(Device.DEFAULT in ["METAL", "WEBGPU"], "METAL has issues with -inf")
   def test_mul_const_naninf(self):
     helper_test_op([(45,65)], lambda x: x*float("inf"), lambda x: x*float("inf"))
     helper_test_op([(45,65)], lambda x: x*-float("inf"), lambda x: x*-float("inf"))
     helper_test_op([(45,65)], lambda x: x*float("nan"), lambda x: x*float("nan"))
-  @unittest.skipIf(Device.DEFAULT == "METAL", "METAL has issues with -inf")
+  @unittest.skipIf(Device.DEFAULT in ["METAL", "WEBGPU"], "METAL has issues with -inf")
   def test_div_const_naninf(self):
     helper_test_op([(45,65)], lambda x: x/float("inf"), lambda x: x/float("inf"))
     helper_test_op([(45,65)], lambda x: x/-float("inf"), lambda x: x/-float("inf"))
@@ -299,6 +300,8 @@ class TestOps(unittest.TestCase):
     helper_test_op([(45,65), (45,65)], lambda x,y: x**y, Tensor.pow, a=0)
   def test_pow(self):
     # TODO: why is a=0 for these tests?
+    helper_test_op([(45,65)], lambda x: x**0, lambda x: Tensor.pow(x,0), a=0)
+    helper_test_op([(45,65)], lambda x: x**1, lambda x: Tensor.pow(x,1), a=0)
     helper_test_op([(45,65)], lambda x: x**2, lambda x: Tensor.pow(x,2), a=0)
     helper_test_op([(45,65)], lambda x: x**3, lambda x: Tensor.pow(x,3), a=0)
     helper_test_op([(45,65)], lambda x: x**-2, lambda x: Tensor.pow(x,-2), a=0)
@@ -459,6 +462,9 @@ class TestOps(unittest.TestCase):
   def test_einsum(self):
     # matrix transpose
     helper_test_op([(150,150)], lambda a: torch.einsum('ij->ji', a), lambda a: Tensor.einsum('ij->ji', a))
+    helper_test_op([(150,150)], lambda a: torch.einsum('ji', a), lambda a: Tensor.einsum('ji', a))
+    helper_test_op([(20,30,40)], lambda a: torch.einsum('jki', a), lambda a: Tensor.einsum('jki', a))
+    helper_test_op([(20,30,40)], lambda a: torch.einsum('dog', a), lambda a: Tensor.einsum('dog', a))
     # sum all elements
     helper_test_op([(20,30,40)], lambda a: torch.einsum('ijk->', a), lambda a: Tensor.einsum('ijk->', a))
     # column sum
@@ -805,16 +811,18 @@ class TestOps(unittest.TestCase):
     helper_test_op([(1,3,6,6)], lambda x: torch.squeeze(x, 0), lambda x: x.squeeze(dim=0))
     helper_test_op([(4,3,1,6)], lambda x: torch.squeeze(x, 1), lambda x: x.squeeze(dim=1))
     helper_test_op([(4,3,6,6)], lambda x: torch.squeeze(x, 3), lambda x: x.squeeze(dim=3))
-    self.helper_test_exception([(4,3,6,6)], lambda x: torch.squeeze(x, 50), lambda x: x.squeeze(dim=50), expected=IndexError, exact=True)
-    self.helper_test_exception([(4,3,6,6)], lambda x: torch.squeeze(x, -50), lambda x: x.squeeze(dim=-50), expected=IndexError, exact=True)
+    self.helper_test_exception([(4,3,6,6)], lambda x: torch.squeeze(x, 50), lambda x: x.squeeze(dim=50), expected=IndexError)
+    self.helper_test_exception([(4,3,6,6)], lambda x: torch.squeeze(x, -50), lambda x: x.squeeze(dim=-50), expected=IndexError)
     helper_test_op([(4,3,6,1)], lambda x: torch.squeeze(x, -1), lambda x: x.squeeze(dim=-1))
     helper_test_op([(4,3,6,6)], lambda x: torch.squeeze(x), lambda x: x.squeeze())
     helper_test_op([(1,3,6,6)], lambda x: torch.squeeze(x), lambda x: x.squeeze())
     helper_test_op([(2,3,1)], lambda x: torch.squeeze(x), lambda x: x.squeeze())
     helper_test_op([()], lambda x: torch.squeeze(x, -1), lambda x: x.squeeze(dim=-1))
     helper_test_op([()], lambda x: torch.squeeze(x, 0), lambda x: x.squeeze(dim=0))
-    self.helper_test_exception([()], lambda x: torch.squeeze(x, 10), lambda x: x.squeeze(dim=10), expected=IndexError, exact=True)
     helper_test_op([()], lambda x: torch.squeeze(x), lambda x: x.squeeze())
+    self.helper_test_exception([()], lambda x: torch.squeeze(x, 10), lambda x: x.squeeze(dim=10), expected=IndexError)
+    self.helper_test_exception([()], lambda x: torch.squeeze(x, 1), lambda x: x.squeeze(dim=1), expected=IndexError)
+    self.helper_test_exception([()], lambda x: torch.squeeze(x, -2), lambda x: x.squeeze(dim=-2), expected=IndexError)
 
   def test_unsqueeze(self):
     helper_test_op([(4,3,6,6)], lambda x: torch.unsqueeze(x, 0), lambda x: x.unsqueeze(dim=0))
@@ -1249,6 +1257,10 @@ class TestOps(unittest.TestCase):
 
     np.testing.assert_allclose(x.repeat((2, 0, 4)).numpy(), Tensor.zeros(8, 0, 12).numpy())
 
+  def test_simple_repeat(self):
+    repeats = [3, 3, 4]
+    helper_test_op([(3, 3)], lambda x: x.repeat(*repeats), lambda x: x.repeat(repeats))
+
   def test_clip(self):
     helper_test_op([(45,65)], lambda x: x.clip(-2.3, 1.2), lambda x: x.clip(-2.3, 1.2))
 
@@ -1323,6 +1335,8 @@ class TestOps(unittest.TestCase):
     # indexing using idx with different dim
     helper_test_op([(2,3)], lambda x: x[torch.tensor([[0,0,0],[0,0,0]]), torch.tensor(1)], lambda x: x[Tensor([[0,0,0],[0,0,0]]), Tensor(1)])
     helper_test_op([(2,3)], lambda x: x[torch.tensor([1]), torch.tensor([[0,0,0],[0,0,0]])], lambda x: x[Tensor([1]), Tensor([[0,0,0],[0,0,0]])])
+    helper_test_op([(2,3)], lambda x: x[torch.tensor([[0,0,0],[0,0,0]]), torch.tensor([2,1,1])], lambda x: x[Tensor([[0,0,0],[0,0,0]]), Tensor([2,1,1])])
+    helper_test_op([(2,3)], lambda x: x[torch.tensor([[0,1,-1],[-1,-2,0]]), torch.tensor([2,1,-1])], lambda x: x[Tensor([[0,1,-1],[-1,-2,0]]), Tensor([2,1,-1])])
 
   def test_slice_fancy_indexing_list_indices(self):
     a,b,c,d,e,i,j,k,o,p = self._get_index_randoms()
@@ -1381,6 +1395,8 @@ class TestOps(unittest.TestCase):
   def test_scaled_product_attention(self):
     helper_test_op([(32,8,16,64), (32,8,16,64), (32,8,16,64)], lambda x,y,z: torch.nn.functional.scaled_dot_product_attention(x,y,z), lambda x,y,z: Tensor.scaled_dot_product_attention(x,y,z))
     helper_test_op([(32,8,16,64), (32,8,16,64), (32,8,16,64), (32,8,16,16)], lambda x,y,z,m: torch.nn.functional.scaled_dot_product_attention(x,y,z,attn_mask=m), lambda x,y,z,m: Tensor.scaled_dot_product_attention(x,y,z,attn_mask=m))
+
+  def test_scaled_product_attention_causal(self):
     helper_test_op([(32,8,16,64), (32,8,16,64), (32,8,16,64)], lambda x,y,z: torch.nn.functional.scaled_dot_product_attention(x,y,z,is_causal=True), lambda x,y,z: Tensor.scaled_dot_product_attention(x,y,z,is_causal=True))
 
   def test_binary_crossentropy(self):

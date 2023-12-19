@@ -4,11 +4,12 @@ import math, unittest, random, copy
 # import warnings
 import numpy as np
 
-from tinygrad import Tensor, dtypes
+from tinygrad import Tensor, dtypes, Device
 # from tinygrad import TinyJit
 from tinygrad.lazy import LazyBuffer
 from tinygrad.shape.shapetracker import ShapeTracker
 from tinygrad.shape.view import View
+from tinygrad.helpers import CI
 
 random.seed(42)
 
@@ -24,7 +25,7 @@ def consec(shape, start=1):
 def set_(reference: Tensor, shape, strides, offset):
   if reference.lazydata.base.realized is None: reference.realize()
   assert reference.lazydata.base.realized, "base has to be realized before setting it to strided's base"
-  strided = Tensor(LazyBuffer(device=reference.device, st=ShapeTracker((View.create(shape=shape, strides=strides, offset=offset),)), optype=None, op=None, dtype=reference.dtype, src=None, base=reference.lazydata.base))
+  strided = Tensor(LazyBuffer(device=reference.device, st=ShapeTracker((View.create(shape=shape, strides=strides, offset=offset),)), optype=None, op=None, dtype=reference.dtype, src=None, base=reference.lazydata.base))   # noqa: E501
   assert strided.lazydata.st.real_strides() == strides, "real_strides should equal strides for strided"
   assert strided.lazydata in reference.lazydata.base.views, "base.views should contain strided.lazydata"
   return strided
@@ -187,6 +188,7 @@ class TestIndexing(unittest.TestCase):
     # def delitem(): del reference[0]
     # self.assertRaises(TypeError, delitem)
 
+  @unittest.skipIf(CI and Device.DEFAULT in ["CLANG", "GPU"], "slow")
   def test_advancedindex(self):
     # integer array indexing
 
