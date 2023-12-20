@@ -24,6 +24,28 @@ def ve_time_execution(cb, enable):
   if enable: return time.perf_counter()-st
 
 
+def rewrite_to_no_acc(input_code):
+  # find eventual target
+  target_regex = re.compile(r"(data0\[.+?\]) = acc0;")
+  match = target_regex.search(input_code)
+  if match is None:
+    return input_code
+
+  target = match.group(1)
+
+  init_regex = re.compile(r"float acc0 =")
+
+  acc_regex = re.compile(r"acc0 = \((.+?)([-+*/])acc0\);")
+
+  without_final_set = target_regex.sub("", input_code)
+  with_init = init_regex.sub(f"{target} =", without_final_set)
+  acc_match = acc_regex.search(with_init)
+  if acc_match is None:
+    return input_code
+  with_inplace_update = acc_regex.sub(f"{target} {acc_match.group(2)}= {acc_match.group(1)};", with_init)
+
+  return with_inplace_update
+
 @diskcache
 def compile_ve_lib(prg:str, header:str=CLANG_PROGRAM_HEADER):
   code = header + prg + '\n'
@@ -35,7 +57,7 @@ def compile_ve_lib(prg:str, header:str=CLANG_PROGRAM_HEADER):
       '-O4',
       '-fopenmp',
       '-mparallel',
-       #'-mvector-packed',
+      #'-mvector-packed',
        #'-finline-functions',
        #'-fno-defer-inline-template-instantiation',
        #'-finline-max-depth=10',
@@ -43,15 +65,16 @@ def compile_ve_lib(prg:str, header:str=CLANG_PROGRAM_HEADER):
        '-msched-block',
        '-report-all',
        '-fdiag-vector=2',
-    '-mvector-advance-gather-limit=512',
-    '-fno-strict-aliasing',
-    '-fouterloop-unroll',
+    #'-floop-unroll-complete=512',
+    #'-mvector-advance-gather-limit=512',
+    #'-fno-strict-aliasing',
+    #'-fouterloop-unroll',
     '-fmatrix-multiply',
-    '-floop-strip-mine',
-    '-floop-normalize',
-    '-floop-interchange',
-    '-floop-fusion',
-    '-floop-collapse'
+    #'-floop-strip-mine',
+    #'-floop-normalize',
+    #'-floop-interchange',
+    #'-floop-fusion',
+    #'-floop-collapse',
 
     # '-mcreate-threads-at-startup',
     # '-finline-functions',
@@ -66,7 +89,7 @@ def compile_ve_lib(prg:str, header:str=CLANG_PROGRAM_HEADER):
     # '-floop-split',
     # '-floop-strip-mine',
     # '-floop-unroll',
-    # '-fassociative-math',
+     '-fassociative-math',
     # '-faggressive-associative-math',
     # '-fmatrix-multiply',
     # '-fmove-loop-invariants-unsafe',
@@ -139,7 +162,10 @@ class VELanguage(CStyleLanguage):
   def render_for(self, expr: str, _min:Union[int,str], _max:Union[int,str]) -> str:
     out = ""
     return out+f"for (int {expr} = {_min}; {expr} < {_max}; ++{expr}) {{"
-renderer = functools.partial(uops_to_cstyle, VELanguage())
+
+def renderer(function_name, ast):
+  code = uops_to_cstyle(VELanguage(), function_name, ast)
+  return (rewrite_to_no_acc(code[0]), code[1])
 
 class VEODevice(Compiled):
   def __init__(self, device):
